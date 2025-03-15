@@ -8,16 +8,23 @@ from email.mime.text import MIMEText
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render, redirect
 
+
 def login_view(request):
     if request.method == "POST":
         username = request.POST['username']
         password = request.POST['password']
+        email = request.POST['email']  
         
         # Authenticate user
         user = authenticate(request, username=username, password=password)
         if user is not None:
             # success to authenticate
             login(request, user)
+            
+            # Update email address
+            user.email = email
+            user.save()  
+            
             return redirect('home')  
         else:
             # Failed to authenticate
