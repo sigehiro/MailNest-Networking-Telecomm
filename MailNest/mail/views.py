@@ -1,5 +1,8 @@
+import aiosqlite
+import asyncio
 import smtplib
 import re
+from .models import Email
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from django.contrib.auth import authenticate, login
@@ -92,6 +95,17 @@ def send_email_view(request):
                 all_recipients = recipients + cc_recipients + bcc_recipients
                 server.send_message(msg, to_addrs=all_recipients)
 
+            email_record = Email(
+                sender=from_address,
+                recipients=', '.join(recipients),
+                cc=', '.join(cc_recipients),
+                bcc=', '.join(bcc_recipients),
+                subject=subject,
+                body=message,
+                is_sent=True
+            )
+            email_record.save()  
+
             success_message = "Email sent successfully."
             return render(request, 'send_email.html', {'success_message': success_message})
         except Exception as e:
@@ -102,4 +116,14 @@ def send_email_view(request):
 
 
 
+async def fetch_emails():
+    async with aiosqlite.connect('db.sqlite3') as db:
+        async with db.execute("SELECT * FROM mail_email WHERE is_sent = 1 ORDER BY timestamp DESC") as cursor:
+            rows = await cursor.fetchall()
+            columns = [column[0] for column in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
 
+
+def inbox_view(request):
+    emails = asyncio.run(fetch_emails())
+    return render(request, 'inbox.html', {'emails': emails})
