@@ -19,9 +19,11 @@ from django.contrib import admin
 from django.urls import path
 from django.contrib import admin
 from django.urls import include, path
+from .views import redirect_to_login
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('', redirect_to_login, name='redirect_to_login'),  
     path('', include('mail.urls')),
 ]
 
