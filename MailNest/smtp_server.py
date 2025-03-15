@@ -6,7 +6,7 @@ class CustomSMTP:
         try:
             print('Message from:', envelope.mail_from)
             print('Message for:', envelope.rcpt_tos)
-            # print('Message data:\n', envelope.content.decode())
+            print('Message data:\n', envelope.content.decode())
 
             print('Processing email...')
             return '250 Message accepted for delivery'
