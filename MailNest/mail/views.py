@@ -2,12 +2,19 @@ import aiosqlite
 import asyncio
 import smtplib
 import re
-from .models import Email
+import os
+import mimetypes
+from .models import Email, Attachment
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email import encoders
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render, redirect
-
+from django.http import JsonResponse
+from django.views import View
+from django.core.files.storage import FileSystemStorage
+from django.http import HttpResponse 
 
 def login_view(request):
     if request.method == "POST":
@@ -62,43 +69,60 @@ def send_email_view(request):
         if invalid_recipients:
             error_messages.append(f"Invalid recipient email addresses: {', '.join(invalid_recipients)}")
 
-        # CC list validation (only if input is present)
-        if cc_list:
-            cc_recipients = [email.strip() for email in cc_list.split(',')]
-            invalid_cc_recipients = [recipient for recipient in cc_recipients if not is_valid_email(recipient)]
-            if invalid_cc_recipients:
-                error_messages.append(f"Invalid CC email addresses: {', '.join(invalid_cc_recipients)}")
-        else:
-            cc_recipients = []
-
-        # BCC list validation (only if input is present)
-        if bcc_list:
-            bcc_recipients = [email.strip() for email in bcc_list.split(',')]
-            invalid_bcc_recipients = [recipient for recipient in bcc_recipients if not is_valid_email(recipient)]
-            if invalid_bcc_recipients:
-                error_messages.append(f"Invalid BCC email addresses: {', '.join(invalid_bcc_recipients)}")
-        else:
-            bcc_recipients = []
+        # CC and BCC list validation
+        cc_recipients = [email.strip() for email in cc_list.split(',')] if cc_list else []
+        bcc_recipients = [email.strip() for email in bcc_list.split(',')] if bcc_list else []
 
         # Display error messages if present
         if error_messages:
             return render(request, 'send_email.html', {'error_message': ' '.join(error_messages)})
 
-
         # Create email message
         msg = MIMEMultipart()
         msg['From'] = from_address
-        msg['To'] = ', '.join(recipients)  # Display recipient list as comma-separated
+        msg['To'] = ', '.join(recipients)  
         msg['Cc'] = ', '.join(cc_recipients)  
         msg['Subject'] = subject  
 
         # Attach email body
         msg.attach(MIMEText(message, 'plain'))
+        
+        # Attachments file handling
+        if request.FILES:
+            for uploaded_file in request.FILES.getlist('attachments'):
+                try:
+                    part = MIMEBase('application', 'octet-stream')
+                    content = uploaded_file.read()
+                    if not content:
+                        print(f"Failed to read content from {uploaded_file.name}. It might be empty.")
+                        continue
+                    
+                    part.set_payload(content)
+
+                    # Determine the MIME type of the file
+                    mime_type, _ = mimetypes.guess_type(uploaded_file.name)
+                    if mime_type:
+                        part.set_type(mime_type)
+                    else:
+                        part.set_type('application/octet-stream')  # Default to binary
+                    
+                    encoders.encode_base64(part)  # Base64でエンコード
+                    part.add_header('Content-Disposition', f'attachment; filename="{uploaded_file.name}"')
+                    msg.attach(part)
+
+                    print(f"Attached file: {uploaded_file.name} with MIME type: {mime_type}")
+
+                except Exception as e:
+                    print(f"Error processing file {uploaded_file.name}: {str(e)}")
+
+
+        # Check for any errors after processing attachments
+        if error_messages:
+            return render(request, 'send_email.html', {'error_message': ' '.join(error_messages)})
 
         try:
             # Connect to SMTP server and send email
             with smtplib.SMTP('localhost', 2525) as server:
-                # Add CC and BCC to recipient list
                 all_recipients = recipients + cc_recipients + bcc_recipients
                 server.send_message(msg, to_addrs=all_recipients)
 
@@ -115,22 +139,81 @@ def send_email_view(request):
 
             success_message = "Email sent successfully."
             return render(request, 'send_email.html', {'success_message': success_message})
+
         except Exception as e:
-            error_message = f"Failed to send email: {str(e)}"
+            error_message = f"An error occurred while sending the email: {str(e)}"
             return render(request, 'send_email.html', {'error_message': error_message})
 
     return render(request, 'send_email.html')
 
 
-
+# async def fetch_emails():
+#     async with aiosqlite.connect('db.sqlite3') as db:
+#         async with db.execute("SELECT * FROM mail_email WHERE is_sent = 1 ORDER BY timestamp DESC") as cursor:
+#             rows = await cursor.fetchall()
+#             columns = [column[0] for column in cursor.description]
+#             return [dict(zip(columns, row)) for row in rows]
 async def fetch_emails():
     async with aiosqlite.connect('db.sqlite3') as db:
         async with db.execute("SELECT * FROM mail_email WHERE is_sent = 1 ORDER BY timestamp DESC") as cursor:
             rows = await cursor.fetchall()
             columns = [column[0] for column in cursor.description]
-            return [dict(zip(columns, row)) for row in rows]
+            emails = [dict(zip(columns, row)) for row in rows]
+            
+            # 添付ファイル情報を取得
+            for email in emails:
+                email['attachments'] = await fetch_attachments(email['id'])  # この関数を実装する必要があります
+
+            return emails
+
+async def fetch_attachments(email_id):
+    async with aiosqlite.connect('db.sqlite3') as db:
+        async with db.execute("SELECT * FROM mail_attachment WHERE email_id = ?", (email_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [{'name': row[2], 'url': row[3]} for row in rows]  # filenameとfile_pathを返す
 
 
 def inbox_view(request):
     emails = asyncio.run(fetch_emails())
     return render(request, 'inbox.html', {'emails': emails})
+
+
+class UploadAttachmentView(View):
+    def post(self, request):
+        email_id = request.POST.get('email_id')
+        uploaded_file = request.FILES['file']
+        fs = FileSystemStorage()
+        filename = fs.save(uploaded_file.name, uploaded_file)
+        file_path = fs.url(filename)
+
+        attachment = Attachment(email_id=email_id, file_name=uploaded_file.name, file_path=file_path)
+        attachment.save()
+
+        return JsonResponse({'success': True, 'file_path': file_path})
+
+# class DownloadAttachmentView(View):
+#     def get(self, request, id):
+#         try:
+#             attachment = Attachment.objects.get(id=id)
+#             file_path = attachment.file_path
+#             # ファイルを返す処理（例: HttpResponse、FileResponseなどを使用）
+#             return JsonResponse({'file_path': file_path})
+#         except Attachment.DoesNotExist:
+#             return JsonResponse({'success': False, 'error': 'File not found'}, status=404)
+
+
+
+class DownloadAttachmentView(View):
+    def get(self, request, id):
+        try:
+            attachment = Attachment.objects.get(id=id)
+            file_path = attachment.file_path
+            
+            # ファイルを返す処理（HttpResponseを使用）
+            with open(file_path, 'rb') as file:
+                response = HttpResponse(file.read(), content_type='application/octet-stream')
+                response['Content-Disposition'] = f'attachment; filename="{attachment.file_name}"'
+                return response
+        except Attachment.DoesNotExist:
+            return JsonResponse({'success': False, 'error': 'File not found'}, status=404)
+

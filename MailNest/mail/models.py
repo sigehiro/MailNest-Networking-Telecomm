@@ -15,3 +15,6 @@ class Attachment(models.Model):
     email = models.ForeignKey(Email, on_delete=models.CASCADE)
     file_name = models.CharField(max_length=255)
     file_path = models.TextField()
+
+    def __str__(self):
+        return self.file_name

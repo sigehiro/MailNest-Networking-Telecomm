@@ -1,43 +1,123 @@
-<!-- inbox.html -->
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="UTF-8" />
     <title>Inbox</title>
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgb(0, 0, 0);
+            background-color: rgba(0, 0, 0, 0.4);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
     <script>
-      function showEmailDetails(sender, subject, body) {
-        alert('Sender: ' + sender + '\nSubject: ' + subject + '\nContent: ' + body)
-      }
+        function showEmailDetails(sender, subject, body, attachments) {
+            document.getElementById('modalSender').innerText = sender;
+            document.getElementById('modalSubject').innerText = subject;
+            document.getElementById('modalBody').innerText = body;
+
+            const attachmentsList = document.getElementById('modalAttachments');
+            attachmentsList.innerHTML = ''; // Clear previous content
+
+            // Ensure attachments is an array
+            if (Array.isArray(attachments)) {
+                attachments.forEach(function (attachment) {
+                    const link = document.createElement('a');
+                    link.href = attachment.url; // Attachment URL
+                    link.innerText = attachment.name; // Attachment name
+                    link.download = attachment.name; // Download attribute
+                    attachmentsList.appendChild(link);
+                    attachmentsList.appendChild(document.createElement('br'));
+                });
+            } else {
+                attachmentsList.innerText = 'No attachments available.';
+            }
+
+            document.getElementById('emailModal').style.display = 'block'; // Show modal
+        }
+
+        function closeModal() {
+            document.getElementById('emailModal').style.display = 'none';
+        }
     </script>
-  </head>
-  <body>
+</head>
+<body>
     <h1>Inbox</h1>
     <table>
-      <thead>
-        <tr>
-          <th>Sender</th>
-          <th>Subject</th>
-          <th>Received Date</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for email in emails %}
-        <tr onclick="showEmailDetails('{{ email.sender }}', '{{ email.subject }}', '{{ email.body|escapejs }}')">
-          <td>{{ email.sender }}</td>
-          <!-- sender -->
-          <td>{{ email.subject }}</td>
-          <!-- subject -->
-          <td>{{ email.timestamp }}</td>
-          <!-- timestamp -->
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="3">No emails.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
+        <thead>
+            <tr>
+                <th>Sender</th>
+                <th>Subject</th>
+                <th>Received Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for email in emails %}
+            <tr onclick="showEmailDetails('{{ email.sender }}', '{{ email.subject }}', '{{ email.body|escapejs }}', {{ email.attachments|safe }})">
+                <td>{{ email.sender }}</td>
+                <td>{{ email.subject }}</td>
+                <td>{{ email.timestamp }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="3">No emails.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
     </table>
+
+    <!-- Modal -->
+    <div id="emailModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalSubject"></h2>
+            <p><strong>From:</strong> <span id="modalSender"></span></p>
+            <p><strong>Content:</strong></p>
+            <p id="modalBody"></p>
+            <p><strong>Attachments:</strong></p>
+            <div id="modalAttachments">
+                {% if attachments %}
+                    {% for attachment in attachments %}
+                        <a href="{{ attachment.url }}" download>{{ attachment.name }}</a><br>
+                    {% endfor %}
+                {% else %}
+                    No attachments available.
+                {% endif %}
+            </div>
+
+        </div>
+    </div>
+
     <a href="{% url 'home' %}">Back to Home</a>
     <a href="{% url 'send_email' %}">Go to Send Email Page</a>
-  </body>
+</body>
 </html>
